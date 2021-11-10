@@ -3,6 +3,11 @@
 #include "prepfold_cmd.h"
 #include "mask.h"
 #include "backend_common.h"
+#include <stdio.h>
+#include <time.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
 
 // Use OpenMP
 #ifdef _OPENMP
@@ -19,6 +24,8 @@ extern char *make_polycos(char *parfilenm, infodata * idata, char *polycofilenm,
                           int debug_tempo);
 extern int *ranges_to_ivect(char *str, int minval, int maxval, int *numvals);
 void set_posn(prepfoldinfo * in, infodata * idata);
+void dump_memory(void* element, size_t elementSize, size_t elementCount, int isDumpHex);
+void dump_search_info(prepfoldinfo* search);
 
 /*
  * The main program
@@ -1371,6 +1378,9 @@ int main(int argc, char *argv[])
         vect_free(buffers);
         vect_free(phasesadded);
     }
+    dump_memory(search.stats, sizeof(foldstats), cmd->npart * cmd->nsub, 1);
+    dump_memory(search.rawfolds, sizeof(double), cmd->npart * cmd->nsub * search.proflen, 1);
+    dump_search_info(&search);
     // This resets foldf (which is used below) to the original value
     if (cmd->polycofileP)
         foldf = orig_foldf;
@@ -1833,4 +1843,61 @@ int main(int argc, char *argv[])
     }
     printf("Done.\n\n");
     return (0);
+}
+
+void dump_memory(void* elements, size_t elementSize, size_t elementCount, int isDumpHex) {
+    printf("Writing Memory Dump...");
+	unsigned char* outResult;
+	struct tm* timenow;
+	char* memoryOutFilename = (char*)calloc(29, sizeof(char));
+	char* hexOutFilename = (char*)calloc(29, sizeof(char));
+	FILE* memoryOut, * hexOut;
+	size_t size = elementSize * elementCount;
+	time_t now = time(NULL);
+	timenow = gmtime(&now);
+	outResult = (unsigned char*)calloc(size, sizeof(unsigned char));
+	memcpy(outResult, elements, size);
+	strftime(memoryOutFilename, 29, "memdump_%Y-%m-%d_%H_%M_%S", timenow);
+	memoryOut = fopen(memoryOutFilename, "w");
+	fwrite(outResult, sizeof(unsigned char), size, memoryOut);
+	fclose(memoryOut);
+	if (isDumpHex) {
+		strftime(hexOutFilename, 29, "hexdump_%Y-%m-%d_%H_%M_%S", timenow);
+		hexOut = fopen(hexOutFilename, "w");
+		size_t i, j;
+		fprintf(hexOut, "Total Size: %ld\n", size);
+		for (i = 0; i < size; i += 16)
+		{
+			fprintf(hexOut, "%08X: ", i);
+
+			for (j = 0; j < 16; j++)
+				if (i + j < size)
+					fprintf(hexOut, "%02X ", outResult[i + j]);
+				else
+					fprintf(hexOut, "   ");
+			fprintf(hexOut, " ");
+
+			for (j = 0; j < 16; j++)
+				if (i + j < size)
+					fprintf(hexOut, "%c", isprint(outResult[i + j]) ? outResult[i + j] : '.');
+			fprintf(hexOut, "\n");
+		}
+		fclose(hexOut);
+	}
+	free(outResult);
+}
+
+void dump_search_info(prepfoldinfo* search) {
+    printf("Writing Search Info Dump...");
+	FILE* searchOut;
+    struct tm* timenow;
+    char* searchOutFilename = (char*)calloc(32, sizeof(char));
+	time_t now = time(NULL);
+	timenow = gmtime(&now);
+	strftime(searchOutFilename, 32, "searchdump_%Y-%m-%d_%H_%M_%S", timenow);
+	searchOut = fopen(searchOutFilename, "w");
+	fprintf(searchOut, "Number of frequency subbands folded: %d\n", search->nsub);
+	fprintf(searchOut, "Number of folds in time over integration: %d\n", search->npart);
+	fprintf(searchOut, "Number of bins per profile: %d\n", search->proflen);
+	fclose(searchOut);
 }
